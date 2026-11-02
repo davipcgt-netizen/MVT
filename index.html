@@ -18,7 +18,7 @@
                         mono: ['"JetBrains Mono"', 'monospace'],
                     },
                     colors: {
-                        mtv: {
+                        mvt: {
                             bg: '#f4f6fb',
                             dark: '#090d16',
                             card: '#ffffff',
@@ -89,6 +89,20 @@
 </head>
 <body class="min-h-screen flex flex-col lg:flex-row bg-slate-100 text-slate-800 antialiased">
 
+    <!-- PANTALLA DE MANTENIMIENTO GLOBAL -->
+    <div id="maintenanceScreen" class="fixed inset-0 bg-slate-950 z-[100] hidden flex-col items-center justify-center p-6 text-center text-white space-y-5">
+        <div class="w-20 h-20 rounded-3xl bg-amber-500/10 border border-amber-500/30 text-amber-400 flex items-center justify-center text-3xl shadow-2xl animate-pulse">
+            <i class="fa-solid fa-triangle-exclamation"></i>
+        </div>
+        <div class="space-y-2 max-w-md">
+            <h1 class="text-3xl font-extrabold tracking-tight text-white">PÁGINA EN MANTENIMIENTO</h1>
+            <p class="text-sm text-slate-400 leading-relaxed">El taller MVT se encuentra realizando actualizaciones y mejoras en el sistema. Volveremos a estar en línea muy pronto.</p>
+        </div>
+        <button onclick="checkMaintenanceMode()" class="px-6 py-3 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs transition border border-slate-700 flex items-center gap-2">
+            <i class="fa-solid fa-rotate"></i> Comprobar Estado
+        </button>
+    </div>
+
     <!-- LOGIN & REGISTER MODAL SCREEN -->
     <div id="authScreen" class="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-50 flex items-center justify-center p-4">
         <div class="bg-white rounded-3xl max-w-md w-full p-6 sm:p-8 shadow-2xl border border-slate-200 space-y-6">
@@ -123,7 +137,7 @@
                 </div>
 
                 <button type="submit" id="authSubmitBtn" class="w-full py-3.5 px-4 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-sm shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2 transition">
-                    <i class="fa-solid fa-right-to-bracket"></i>
+                    <i class="fa-solid fa-right-to-bracket" id="authBtnIcon"></i>
                     <span id="authBtnText">Entrar al Sistema</span>
                 </button>
             </form>
@@ -565,7 +579,7 @@
                             Volver al Listado
                         </button>
                         <button type="submit" id="submitBtn" class="w-full sm:w-auto px-8 py-3.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs sm:text-sm shadow-xl shadow-indigo-600/30 flex items-center justify-center gap-2.5 transition">
-                            <i class="fa-solid fa-check-double"></i>
+                            <i class="fa-solid fa-check-double" id="submitBtnIcon"></i>
                             <span id="submitBtnText">Guardar Orden en MVT</span>
                         </button>
                     </div>
@@ -617,7 +631,7 @@
                 </div>
                 <div class="pt-2">
                     <button type="submit" id="changePassBtn" class="w-full py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-extrabold shadow-lg shadow-indigo-600/20 transition flex items-center justify-center gap-2">
-                        <span>Guardar Cambios</span>
+                        <span id="changePassBtnText">Guardar Cambios</span>
                     </button>
                 </div>
             </form>
@@ -683,7 +697,6 @@
 
     <!-- SUPABASE CONFIG & SCRIPT LOGIC -->
     <script>
-        // CREDENCIALES DE SUPABASE
         const SUPABASE_URL = 'https://jouqjbutkvqqvqgmzlux.supabase.co';
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpvdXFqYnV0a3ZxcXZxZ216bHV4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTI2MDM0OTYsImV4cCI6MjEwODE3OTQ5Nn0.MH8aHBdnsR99EFTf92OzXVi3oKNBKpuqjq5SYSAzsFI';
         
@@ -700,8 +713,43 @@
         let authMode = 'login'; // 'login' or 'register'
 
         window.onload = function() {
+            checkMaintenanceMode();
             checkSession();
         };
+
+        async function checkMaintenanceMode() {
+            try {
+                const { data } = await db
+                    .from('mvt_settings')
+                    .select('value')
+                    .eq('key', 'maintenance_mode')
+                    .maybeSingle();
+
+                const isMaintained = data && data.value === 'true';
+                const screen = document.getElementById('maintenanceScreen');
+                if (isMaintained) {
+                    screen.classList.remove('hidden');
+                    screen.classList.add('flex');
+                } else {
+                    screen.classList.remove('flex');
+                    screen.classList.add('hidden');
+                }
+            } catch (err) {
+                // Ignorar si la tabla no existe aún
+            }
+        }
+
+        async function updateHeartbeat() {
+            if (!currentUser) return;
+            try {
+                await db
+                    .from('mvt_users')
+                    .update({ last_seen: new Date().toISOString() })
+                    .eq('username', currentUser);
+            } catch (e) {
+                // Silencioso
+            }
+        }
 
         function checkSession() {
             const savedUser = localStorage.getItem('mvt_logged_user');
@@ -711,6 +759,8 @@
                 document.getElementById('dropdownUsernameText').textContent = currentUser;
                 document.getElementById('authScreen').classList.add('hidden');
                 loadOrdersFromCloud();
+                updateHeartbeat();
+                setInterval(updateHeartbeat, 30000); // Latido cada 30 segundos
             } else {
                 document.getElementById('authScreen').classList.remove('hidden');
             }
@@ -747,9 +797,11 @@
             const password = document.getElementById('authPassword').value.trim();
             const submitBtn = document.getElementById('authSubmitBtn');
             const btnText = document.getElementById('authBtnText');
+            const btnIcon = document.getElementById('authBtnIcon');
 
             submitBtn.disabled = true;
-            btnText.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-1"></i> Verificando en la nube...`;
+            btnIcon.className = 'fa-solid fa-spinner fa-spin';
+            btnText.textContent = 'Verificando...';
 
             if (authMode === 'login') {
                 try {
@@ -763,12 +815,14 @@
                     if (error || !data) {
                         showToast('Usuario o contraseña incorrectos');
                         submitBtn.disabled = false;
+                        btnIcon.className = 'fa-solid fa-right-to-bracket';
                         btnText.textContent = 'Entrar al Sistema';
                         return;
                     }
 
                     currentUser = data.username;
                     localStorage.setItem('mvt_logged_user', currentUser);
+                    await updateHeartbeat();
                     document.getElementById('currentLoggedUserBadge').textContent = currentUser;
                     document.getElementById('dropdownUsernameText').textContent = currentUser;
                     document.getElementById('authScreen').classList.add('hidden');
@@ -779,46 +833,35 @@
                     showToast('Error de conexión con Supabase');
                 } finally {
                     submitBtn.disabled = false;
+                    btnIcon.className = 'fa-solid fa-right-to-bracket';
                     btnText.textContent = 'Entrar al Sistema';
                 }
             } else {
-                // Registro con validación para que no se repita el usuario
                 const adminKey = document.getElementById('authAdminKey').value.trim();
                 if (adminKey !== ADMIN_SECRET_KEY) {
                     showToast('Clave de Administrador incorrecta');
                     submitBtn.disabled = false;
+                    btnIcon.className = 'fa-solid fa-user-plus';
                     btnText.textContent = 'Registrar Usuario';
                     return;
                 }
 
                 try {
-                    // Verificar si el usuario ya existe antes de insertar
-                    const { data: existingUser } = await db
-                        .from('mvt_users')
-                        .select('username')
-                        .eq('username', username)
-                        .maybeSingle();
-
-                    if (existingUser) {
-                        showToast('❌ El nombre de usuario ya existe. Elige otro.');
+                    const { data: existU } = await db.from('mvt_users').select('username').eq('username', username).maybeSingle();
+                    if (existU) {
+                        showToast('❌ El nombre de usuario ya existe');
                         submitBtn.disabled = false;
+                        btnIcon.className = 'fa-solid fa-user-plus';
                         btnText.textContent = 'Registrar Usuario';
                         return;
                     }
 
-                    const { error } = await db
-                        .from('mvt_users')
-                        .insert([{ username: username, password: password }]);
-
-                    if (error) {
-                        showToast('Error al registrar usuario en la base de datos');
-                        submitBtn.disabled = false;
-                        btnText.textContent = 'Registrar Usuario';
-                        return;
-                    }
+                    const { error } = await db.from('mvt_users').insert([{ username: username, password: password }]);
+                    if (error) throw error;
 
                     currentUser = username;
                     localStorage.setItem('mvt_logged_user', currentUser);
+                    await updateHeartbeat();
                     document.getElementById('currentLoggedUserBadge').textContent = currentUser;
                     document.getElementById('dropdownUsernameText').textContent = currentUser;
                     document.getElementById('authScreen').classList.add('hidden');
@@ -826,9 +869,10 @@
                     showToast('¡Usuario creado con éxito!');
                 } catch (err) {
                     console.error(err);
-                    showToast('Error al registrar usuario');
+                    showToast('El usuario ya existe o hubo un error');
                 } finally {
                     submitBtn.disabled = false;
+                    btnIcon.className = 'fa-solid fa-user-plus';
                     btnText.textContent = 'Registrar Usuario';
                 }
             }
@@ -863,37 +907,19 @@
             e.preventDefault();
             const newU = document.getElementById('newUsernameInput').value.trim();
             const newP = document.getElementById('newPasswordInput').value.trim();
-            const changeBtn = document.getElementById('changePassBtn');
+            const btn = document.getElementById('changePassBtn');
+            const btnText = document.getElementById('changePassBtnText');
 
-            changeBtn.disabled = true;
-            changeBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-1"></i> Actualizando...`;
+            btn.disabled = true;
+            btnText.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-1"></i> Actualizando...`;
 
             try {
-                // Verificar si el nuevo usuario ya existe (si cambió de nombre)
-                if (newU !== currentUser) {
-                    const { data: existU } = await db
-                        .from('mvt_users')
-                        .select('username')
-                        .eq('username', newU)
-                        .maybeSingle();
-
-                    if (existU) {
-                        showToast('❌ Ese nombre de usuario ya está en uso');
-                        changeBtn.disabled = false;
-                        changeBtn.innerHTML = `<span>Guardar Cambios</span>`;
-                        return;
-                    }
-                }
-
                 const { error } = await db
                     .from('mvt_users')
                     .update({ username: newU, password: newP })
                     .eq('username', currentUser);
 
-                if (error) {
-                    showToast('Error al actualizar credenciales');
-                    return;
-                }
+                if (error) throw error;
 
                 currentUser = newU;
                 localStorage.setItem('mvt_logged_user', currentUser);
@@ -903,10 +929,10 @@
                 showToast('Credenciales actualizadas con éxito');
             } catch (err) {
                 console.error(err);
-                showToast('Error al actualizar');
+                showToast('Error: El usuario ya existe o falló');
             } finally {
-                changeBtn.disabled = false;
-                changeBtn.innerHTML = `<span>Guardar Cambios</span>`;
+                btn.disabled = false;
+                btnText.textContent = 'Guardar Cambios';
             }
         }
 
@@ -914,14 +940,25 @@
             try {
                 const { data, error } = await db
                     .from('mvt_orders')
-                    .select('*')
-                    .order('created_at', { ascending: false });
+                    .select('*');
 
                 if (error) {
                     console.error(error);
                     records = [];
                 } else {
-                    records = data || [];
+                    // Ordenar globalmente: Priorizar primero los equipos activos en taller/reparación y luego los más recientes arriba
+                    records = (data || []).sort((a, b) => {
+                        const statusOrder = { 'En Revisión': 1, 'Reparando': 2, 'Listo para Entregar': 3, 'Entregado': 4 };
+                        const scoreA = statusOrder[a.repair_status] || 5;
+                        const scoreB = statusOrder[b.repair_status] || 5;
+
+                        if (scoreA !== scoreB) {
+                            return scoreA - scoreB; // Los que están en revisión/taller van primero
+                        }
+
+                        // Si tienen el mismo estado, los más recientes van arriba
+                        return new Date(b.created_at || 0) - new Date(a.created_at || 0);
+                    });
                 }
                 renderAll();
             } catch (err) {
@@ -1121,31 +1158,41 @@
             };
 
             const submitBtn = document.getElementById('submitBtn');
+            const submitBtnIcon = document.getElementById('submitBtnIcon');
             const submitBtnText = document.getElementById('submitBtnText');
+
             submitBtn.disabled = true;
-            submitBtnText.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-1"></i> Guardando en la nube...`;
+            submitBtnIcon.className = 'fa-solid fa-spinner fa-spin';
+            submitBtnText.textContent = 'Guardando en la nube...';
 
             try {
                 const { error } = await db
                     .from('mvt_orders')
                     .upsert([recordData]);
 
-                if (error) {
-                    console.error(error);
-                    showToast('Error al guardar en la nube');
-                    return;
-                }
+                if (error) throw error;
 
-                showToast(id ? 'Orden actualizada con éxito' : '¡Cliente registrado en MVT!');
+                showToast(id ? 'Orden actualizada con éxito' : 'Cliente registrado en MVT');
+                saveToStorageFallback(recordData, !!id);
                 resetForm();
                 loadOrdersFromCloud();
                 switchView('list');
             } catch (err) {
                 console.error(err);
-                showToast('Error de red al guardar');
+                showToast('Error al guardar en la nube');
             } finally {
                 submitBtn.disabled = false;
+                submitBtnIcon.className = 'fa-solid fa-check-double';
                 submitBtnText.textContent = 'Guardar Orden en MVT';
+            }
+        }
+
+        function saveToStorageFallback(rec, isEdit) {
+            if (isEdit) {
+                const idx = records.findIndex(r => r.id === rec.id);
+                if (idx !== -1) records[idx] = rec;
+            } else {
+                records.unshift(rec); // Colocar al principio del arreglo local instantáneamente
             }
         }
 
@@ -1156,6 +1203,7 @@
             document.getElementById('advanceAmount').value = '0';
             document.getElementById('profitAmount').value = '$0.00';
             document.getElementById('editNoticeBanner').classList.add('hidden');
+            submitBtnIcon.className = 'fa-solid fa-check-double';
             document.getElementById('submitBtnText').textContent = 'Guardar Orden en MVT';
             clearPattern();
             setLockType('Numerica');
@@ -1517,20 +1565,19 @@
             const modal = document.getElementById('deleteModal');
             modal.classList.remove('hidden');
             modal.classList.add('flex');
-            
+
             const confirmBtn = document.getElementById('confirmDeleteBtn');
             const confirmBtnText = document.getElementById('confirmDeleteBtnText');
-            
+
             confirmBtn.onclick = async function() {
                 confirmBtn.disabled = true;
                 confirmBtnText.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-1"></i> Eliminando...`;
-
                 try {
                     await db.from('mvt_orders').delete().eq('id', recordToDelete);
                     records = records.filter(r => r.id !== recordToDelete);
                     renderAll();
                     closeDeleteModal();
-                    showToast('Orden eliminada correctamente');
+                    showToast('Orden eliminada');
                 } catch (err) {
                     console.error(err);
                     showToast('Error al eliminar');
@@ -1551,20 +1598,19 @@
             const modal = document.getElementById('deleteModal');
             modal.classList.remove('hidden');
             modal.classList.add('flex');
-            
+
             const confirmBtn = document.getElementById('confirmDeleteBtn');
             const confirmBtnText = document.getElementById('confirmDeleteBtnText');
-            
+
             confirmBtn.onclick = async function() {
                 confirmBtn.disabled = true;
                 confirmBtnText.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-1"></i> Vaciando...`;
-
                 try {
                     await db.from('mvt_orders').delete().neq('id', 'ALL');
                     records = [];
                     renderAll();
                     closeDeleteModal();
-                    showToast('Directorio vaciado por completo');
+                    showToast('Directorio vaciado');
                 } catch (err) {
                     console.error(err);
                     showToast('Error al vaciar directorio');
