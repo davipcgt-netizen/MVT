@@ -710,7 +710,7 @@
         let currentPattern = [];
         let activeStatusFilter = 'ALL';
         let recordToDelete = null;
-        let authMode = 'login'; // 'login' or 'register'
+        let authMode = 'login';
 
         window.onload = function() {
             checkMaintenanceMode();
@@ -735,7 +735,7 @@
                     screen.classList.add('hidden');
                 }
             } catch (err) {
-                // Ignorar si la tabla no existe aún
+                // Ignorar
             }
         }
 
@@ -760,7 +760,7 @@
                 document.getElementById('authScreen').classList.add('hidden');
                 loadOrdersFromCloud();
                 updateHeartbeat();
-                setInterval(updateHeartbeat, 30000); // Latido cada 30 segundos
+                setInterval(updateHeartbeat, 30000);
             } else {
                 document.getElementById('authScreen').classList.remove('hidden');
             }
@@ -946,18 +946,14 @@
                     console.error(error);
                     records = [];
                 } else {
-                    // Ordenar globalmente: Priorizar primero los equipos activos en taller/reparación y luego los más recientes arriba
+                    // ORDEN CRONOLÓGICO ESTRICTO: Las órdenes más recientes van arriba basándose en su ID numérico y fecha real de creación
                     records = (data || []).sort((a, b) => {
-                        const statusOrder = { 'En Revisión': 1, 'Reparando': 2, 'Listo para Entregar': 3, 'Entregado': 4 };
-                        const scoreA = statusOrder[a.repair_status] || 5;
-                        const scoreB = statusOrder[b.repair_status] || 5;
-
-                        if (scoreA !== scoreB) {
-                            return scoreA - scoreB; // Los que están en revisión/taller van primero
-                        }
-
-                        // Si tienen el mismo estado, los más recientes van arriba
-                        return new Date(b.created_at || 0) - new Date(a.created_at || 0);
+                        const numA = parseInt(String(a.id || '').replace('MVT-', '')) || 0;
+                        const numB = parseInt(String(b.id || '').replace('MVT-', '')) || 0;
+                        if (numB !== numA) return numB - numA; // ID mayor (más reciente) primero
+                        const timeA = new Date(a.created_at || 0).getTime();
+                        const timeB = new Date(b.created_at || 0).getTime();
+                        return timeB - timeA;
                     });
                 }
                 renderAll();
@@ -1192,7 +1188,7 @@
                 const idx = records.findIndex(r => r.id === rec.id);
                 if (idx !== -1) records[idx] = rec;
             } else {
-                records.unshift(rec); // Colocar al principio del arreglo local instantáneamente
+                records.unshift(rec);
             }
         }
 
@@ -1255,7 +1251,7 @@
             if (rec) {
                 rec.repair_status = newStatus;
                 await db.from('mvt_orders').update({ repair_status: newStatus }).eq('id', id);
-                renderAll();
+                loadOrdersFromCloud(); // Recargar para ordenar adecuadamente
                 showToast('Estado cambiado a: ' + newStatus);
             }
         }
